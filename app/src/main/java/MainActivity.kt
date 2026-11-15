@@ -2,6 +2,7 @@
 
 package com.example.findit
 
+import android.app.Activity
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
@@ -16,6 +17,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -38,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -48,6 +51,7 @@ import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -67,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.view.WindowCompat
 import coil.compose.AsyncImage
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -111,6 +116,10 @@ private val LostText = Color(0xFF8A6A00)
 private val FoundBg = Color(0xFFDCEBFF)
 private val FoundText = Color(0xFF1F5FBF)
 private val Danger = Color(0xFFD64545)
+
+// Header: gradient that runs behind the status bar, right to the top edge of the phone
+private val HeaderBrush = Brush.horizontalGradient(listOf(Color(0xFF1F5FBF), Blue))
+private val HeaderShape = RoundedCornerShape(bottomStart = 26.dp, bottomEnd = 26.dp)
 
 // Open Sans (single variable font file: res/font/open_sans.ttf)
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
@@ -550,6 +559,7 @@ private fun SmartImage(
 // ---------------------------------------------------------------------------
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge() // draw behind the status bar so headers reach the top edge
         super.onCreate(savedInstanceState)
         setContent {
             FindItTheme {
@@ -566,6 +576,57 @@ class MainActivity : ComponentActivity() {
 // ---------------------------------------------------------------------------
 // Shared components
 // ---------------------------------------------------------------------------
+
+/** Light status-bar icons on the blue header, dark icons on the white login screen. */
+@Composable
+private fun StatusBarIcons(darkIcons: Boolean) {
+    val view = LocalView.current
+    SideEffect {
+        val window = (view.context as Activity).window
+        WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkIcons
+    }
+}
+
+/** Gradient header that extends behind the status bar, right to the top edge of the phone. */
+@Composable
+private fun HeaderContainer(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(HeaderShape)
+            .background(HeaderBrush)   // background BEFORE statusBarsPadding so it fills the top
+            .statusBarsPadding()
+            .padding(contentPadding),
+        content = content
+    )
+}
+
+@Composable
+private fun ScreenHeader(
+    title: String,
+    subtitle: String = "",
+    trailing: @Composable RowScope.() -> Unit = {}
+) {
+    HeaderContainer(
+        contentPadding = PaddingValues(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                if (subtitle.isNotBlank()) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(subtitle, fontSize = 13.sp, color = Color.White.copy(alpha = 0.8f))
+                }
+            }
+            trailing()
+        }
+    }
+}
+
 @Composable
 private fun LogoMark(size: Dp = 34.dp) {
     // Ring + person mark, modelled on the Foundit logo.
@@ -589,11 +650,26 @@ private fun LogoMark(size: Dp = 34.dp) {
 }
 
 @Composable
-private fun LogoRow() {
+private fun LogoRow(onDark: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        LogoMark()
+        if (onDark) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(Color.White),
+                contentAlignment = Alignment.Center
+            ) { LogoMark(30.dp) }
+        } else {
+            LogoMark()
+        }
         Spacer(Modifier.width(10.dp))
-        Text("FindIt", color = Blue, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+        Text(
+            "FindIt",
+            color = if (onDark) Color.White else Blue,
+            fontWeight = FontWeight.Bold,
+            fontSize = 22.sp
+        )
     }
 }
 
@@ -620,7 +696,8 @@ private fun AppTextField(
     keyboardType: KeyboardType = KeyboardType.Text,
     password: Boolean = false,
     leadingIcon: ImageVector? = null,
-    trailing: (@Composable () -> Unit)? = null
+    trailing: (@Composable () -> Unit)? = null,
+    containerColor: Color = FieldBg
 ) {
     val leading: (@Composable () -> Unit)? =
         if (leadingIcon == null) null else ({ TinyIcon(leadingIcon, Slate, 20.dp) })
@@ -640,9 +717,9 @@ private fun AppTextField(
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         shape = RoundedCornerShape(if (singleLine) 50.dp else 20.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            unfocusedContainerColor = FieldBg,
-            focusedContainerColor = FieldBg,
-            disabledContainerColor = FieldBg,
+            unfocusedContainerColor = containerColor,
+            focusedContainerColor = containerColor,
+            disabledContainerColor = containerColor,
             unfocusedBorderColor = Color.Transparent,
             disabledBorderColor = Color.Transparent,
             focusedBorderColor = Blue,
@@ -765,12 +842,12 @@ private fun ReportImage(url: String, name: String, modifier: Modifier) {
 }
 
 @Composable
-private fun Avatar(name: String, size: Dp = 36.dp) {
+private fun Avatar(name: String, size: Dp = 36.dp, onDark: Boolean = false) {
     Box(
         Modifier
             .size(size)
             .clip(CircleShape)
-            .background(Blue.copy(alpha = 0.18f)),
+            .background(if (onDark) Color.White else Blue.copy(alpha = 0.18f)),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -943,20 +1020,15 @@ private fun MessageState(title: String, subtitle: String = "", isError: Boolean 
 
 @Composable
 private fun AppTopBar(title: String, onBack: () -> Unit, enabled: Boolean = true) {
-    Column(Modifier.background(ScreenBg)) {
-        Row(
-            Modifier
-                .statusBarsPadding()
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    HeaderContainer(
+        contentPadding = PaddingValues(start = 8.dp, end = 16.dp, top = 6.dp, bottom = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack, enabled = enabled) {
-                Icon(Ic.ArrowBack, contentDescription = "Back", tint = Navy)
+                Icon(Ic.ArrowBack, contentDescription = "Back", tint = Color.White)
             }
-            Text(title, fontSize = 20.sp, fontWeight = FontWeight.Medium, color = Navy)
+            Text(title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
         }
-        HorizontalDivider(color = DividerColor)
     }
 }
 
@@ -1077,6 +1149,9 @@ fun FindItAuthScreen() {
     var studentId by remember { mutableStateOf("") }
     var phoneNumber by remember { mutableStateOf("") }
     var course by remember { mutableStateOf("") }
+
+    // Dark status-bar icons on the white login screen, light icons on the blue headers.
+    StatusBarIcons(darkIcons = !isLoggedIn)
 
     if (isLoggedIn) {
         FindItDashboard(
@@ -1379,6 +1454,8 @@ fun FindItDashboard(
 
     Scaffold(
         containerColor = ScreenBg,
+        // No top inset here: each screen's header draws behind the status bar by itself.
+        contentWindowInsets = WindowInsets(0.dp),
         bottomBar = {
             if (chat == null && detail == null && selectedTab != "Report") {
                 Column {
@@ -1498,27 +1575,24 @@ fun MessagesScreen(
     onOpen: (ChatSummary) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyColumn(
-        modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
-    ) {
-        item {
-            Text("Messages", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Navy)
-            Spacer(Modifier.height(14.dp))
-        }
+    Column(modifier.fillMaxSize()) {
+        ScreenHeader("Messages", "Chat about lost & found items")
 
-        when {
-            chats.isLoading -> item { CenteredLoading() }
-            chats.error.isNotBlank() -> item {
-                MessageState("Could not load messages", chats.error, isError = true)
-            }
-            chats.chats.isEmpty() -> item {
-                MessageState("No messages yet", "Tap Contact on a post to start a conversation.")
-            }
-            else -> items(chats.chats, key = { it.chatId }) { c ->
-                ChatRow(c) { onOpen(c) }
+        LazyColumn(
+            Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            when {
+                chats.isLoading -> item { CenteredLoading() }
+                chats.error.isNotBlank() -> item {
+                    MessageState("Could not load messages", chats.error, isError = true)
+                }
+                chats.chats.isEmpty() -> item {
+                    MessageState("No messages yet", "Tap Contact on a post to start a conversation.")
+                }
+                else -> items(chats.chats, key = { it.chatId }) { c ->
+                    ChatRow(c) { onOpen(c) }
+                }
             }
         }
     }
@@ -1736,42 +1810,38 @@ private fun ChatScreen(
             .background(ScreenBg)
             .imePadding()
     ) {
-        // Top bar: back, avatar, name, Verify
-        Column(Modifier.background(ScreenBg)) {
-            Row(
-                Modifier
-                    .statusBarsPadding()
-                    .fillMaxWidth()
-                    .padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+        // Top bar: back, avatar, name, Verify (gradient header reaching the top edge)
+        HeaderContainer(
+            contentPadding = PaddingValues(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 12.dp)
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Ic.ArrowBack, contentDescription = "Back", tint = Navy)
+                    Icon(Ic.ArrowBack, contentDescription = "Back", tint = Color.White)
                 }
-                Avatar(target.otherName, 36.dp)
+                Avatar(target.otherName, 36.dp, onDark = true)
                 Spacer(Modifier.width(10.dp))
                 Text(
                     target.otherName,
-                    fontSize = 16.sp, fontWeight = FontWeight.Medium, color = Navy,
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
                 Button(
                     onClick = { showVerify = true },
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(50),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (verified) Color(0xFF2E9E5B) else Blue
+                        containerColor = if (verified) Color(0xFF2E9E5B) else Yellow,
+                        contentColor = if (verified) Color.White else Navy
                     ),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                     modifier = Modifier.height(34.dp)
                 ) {
                     Text(
                         if (verified) "Verified ✓" else "Verify →",
-                        fontSize = 13.sp, fontWeight = FontWeight.Medium
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold
                     )
                 }
             }
-            HorizontalDivider(color = DividerColor)
         }
 
         // Messages
@@ -2021,17 +2091,16 @@ fun HomeScreen(
 
     Box(modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            Column(
-                Modifier
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            // Gradient header: logo, notifications, scan, search. Reaches the top edge of the phone.
+            HeaderContainer(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 18.dp)
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    LogoRow()
+                    LogoRow(onDark = true)
                     Spacer(Modifier.weight(1f))
                     Surface(
                         shape = CircleShape,
-                        color = BlueSoft,
+                        color = Color.White,
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
@@ -2044,7 +2113,7 @@ fun HomeScreen(
                     Spacer(Modifier.width(8.dp))
                     Surface(
                         shape = RoundedCornerShape(50),
-                        color = BlueSoft,
+                        color = Color.White,
                         modifier = Modifier
                             .height(36.dp)
                             .clip(RoundedCornerShape(50))
@@ -2060,10 +2129,11 @@ fun HomeScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(16.dp))
                 AppTextField(
                     searchText, { searchText = it },
                     "Search your lost item here...", leadingIcon = Ic.Search,
+                    containerColor = Color.White,
                     trailing = if (searchText.isNotEmpty()) {
                         {
                             IconButton(onClick = { searchText = "" }) {
@@ -2072,14 +2142,16 @@ fun HomeScreen(
                         }
                     } else null
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    (listOf("All items") + ReportCategories).forEach { c ->
-                        Pill(c, selectedCategory == c) { selectedCategory = c }
-                    }
+            }
+
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                (listOf("All items") + ReportCategories).forEach { c ->
+                    Pill(c, selectedCategory == c) { selectedCategory = c }
                 }
             }
 
@@ -2255,7 +2327,10 @@ private fun ItemDetailScreen(
             Spacer(Modifier.height(12.dp))
         }
 
-        PosterBar(report, showContact = !isOwner, onContact = onContact)
+        // Keeps the poster bar clear of the gesture / navigation bar.
+        Column(Modifier.background(BlueSoft).navigationBarsPadding()) {
+            PosterBar(report, showContact = !isOwner, onContact = onContact)
+        }
     }
 
     if (confirmDelete) {
@@ -2585,56 +2660,55 @@ fun MyPostsScreen(
 
     val shown = state.reports.filter { tab == "All" || it.status.equals(tab, true) }
 
-    LazyColumn(
-        modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
-    ) {
-        item {
-            Text("My Posts", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Navy)
-            Text("Lost and found items you have posted.", color = TextMuted, fontSize = 13.sp)
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("All", "Lost", "Found").forEach { s -> Pill(s, tab == s) { tab = s } }
-            }
-            Spacer(Modifier.height(14.dp))
-        }
+    Column(modifier.fillMaxSize()) {
+        ScreenHeader("My Posts", "Lost and found items you have posted")
 
-        when {
-            state.isLoading -> item { CenteredLoading() }
-            state.error.isNotBlank() -> item {
-                MessageState("Could not load your posts", state.error, isError = true)
+        LazyColumn(
+            Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("All", "Lost", "Found").forEach { s -> Pill(s, tab == s) { tab = s } }
+                }
+                Spacer(Modifier.height(14.dp))
             }
-            shown.isEmpty() -> item {
-                MessageState(
-                    "Nothing here yet",
-                    "You haven't posted any ${if (tab == "All") "" else tab.lowercase() + " "}items."
-                )
-            }
-            else -> items(shown, key = { it.reportId }) { r ->
-                PostCard(r, onClick = { onOpen(r) }) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .background(BlueSoft)
-                            .padding(start = 12.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Posted ${timeAgo(r.timestamp)}",
-                            color = Navy, fontSize = 12.sp, modifier = Modifier.weight(1f)
-                        )
-                        TextButton(onClick = { toDelete = r }) {
-                            TinyIcon(Ic.Delete, Danger, 16.dp)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Delete", color = Danger, fontSize = 13.sp)
+
+            when {
+                state.isLoading -> item { CenteredLoading() }
+                state.error.isNotBlank() -> item {
+                    MessageState("Could not load your posts", state.error, isError = true)
+                }
+                shown.isEmpty() -> item {
+                    MessageState(
+                        "Nothing here yet",
+                        "You haven't posted any ${if (tab == "All") "" else tab.lowercase() + " "}items."
+                    )
+                }
+                else -> items(shown, key = { it.reportId }) { r ->
+                    PostCard(r, onClick = { onOpen(r) }) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(BlueSoft)
+                                .padding(start = 12.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Posted ${timeAgo(r.timestamp)}",
+                                color = Navy, fontSize = 12.sp, modifier = Modifier.weight(1f)
+                            )
+                            TextButton(onClick = { toDelete = r }) {
+                                TinyIcon(Ic.Delete, Danger, 16.dp)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Delete", color = Danger, fontSize = 13.sp)
+                            }
                         }
                     }
                 }
             }
+            item { Spacer(Modifier.height(12.dp)) }
         }
-        item { Spacer(Modifier.height(12.dp)) }
     }
 
     toDelete?.let { r ->
@@ -2748,22 +2822,15 @@ fun ProfileScreen(
         editing = false; selectedImageUri = null; message = ""
     }
 
-    Column(modifier.fillMaxSize().statusBarsPadding()) {
-        // Top bar: title + overflow menu (like the reference)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+    Column(modifier.fillMaxSize()) {
+        // Gradient header with the overflow menu
+        ScreenHeader(
+            title = if (editing) "Edit Profile" else "Profile",
+            subtitle = "Manage your account and posts"
         ) {
-            Text(
-                if (editing) "Edit Profile" else "Profile",
-                fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Navy,
-                modifier = Modifier.weight(1f)
-            )
             Box {
                 IconButton(onClick = { menuOpen = true }) {
-                    Icon(Ic.MoreVert, contentDescription = "More options", tint = Navy)
+                    Icon(Ic.MoreVert, contentDescription = "More options", tint = Color.White)
                 }
                 DropdownMenu(
                     expanded = menuOpen,
@@ -2784,7 +2851,7 @@ fun ProfileScreen(
 
         LazyColumn(
             Modifier.weight(1f),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp)
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp)
         ) {
             // Profile details card
             item {
